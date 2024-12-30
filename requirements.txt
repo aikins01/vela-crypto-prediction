@@ -20,6 +20,7 @@ numpy==2.2.1
 packaging==24.2
 pandas==2.2.3
 pillow==11.0.0
+plotly==5.24.1
 pluggy==1.5.0
 propcache==0.2.1
 pycryptodome==3.21.0
@@ -34,6 +35,7 @@ requests==2.32.3
 scikit-learn==1.6.0
 scipy==1.14.1
 six==1.17.0
+tenacity==9.0.0
 threadpoolctl==3.5.0
 tzdata==2024.2
 tzlocal==5.2

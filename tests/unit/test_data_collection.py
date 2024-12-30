@@ -30,6 +30,22 @@ def test_binance_data_collector():
     assert data['volume'].dtype == float
     assert data['trades'].dtype == int
 
+def test_get_small_cap_symbols():
+    collector = BinanceDataCollector()
+    symbols = collector.get_small_cap_symbols()
+
+    assert isinstance(symbols, list)
+    if symbols:  # if we found any matching tokens
+        first_token = symbols[0]
+        assert isinstance(first_token, dict)
+        assert 'symbol' in first_token
+        assert 'market_cap' in first_token
+        assert 'volume_24h' in first_token
+        assert 'days_listed' in first_token
+        assert first_token['market_cap'] <= 100_000_000
+        assert first_token['volume_24h'] >= 1_000_000
+        assert first_token['days_listed'] <= 90
+
 def test_invalid_interval():
     collector = BinanceDataCollector()
     with pytest.raises(ValueError, match="Invalid interval"):
