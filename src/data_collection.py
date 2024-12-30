@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 import numpy as np
 from typing import Optional, List, Dict
+from tqdm import tqdm
 
 load_dotenv()
 
@@ -25,7 +26,8 @@ class BinanceDataCollector:
 
         # filter USDT pairs first
         usdt_pairs = []
-        for symbol_info in exchange_info['symbols']:
+        # hmm lets check each symbol
+        for symbol_info in tqdm(exchange_info['symbols'], desc="Checking pairs"):
             symbol = symbol_info['symbol']
             if not symbol.endswith('USDT') or symbol_info['status'] != 'TRADING':
                 continue
@@ -44,7 +46,9 @@ class BinanceDataCollector:
         candidates = []
         batch_size = 10  # process 10 at a time
 
-        for i in range(0, len(usdt_pairs), batch_size):
+        # process batches with progress tracking
+        batches = list(range(0, len(usdt_pairs), batch_size))
+        for i in tqdm(batches, desc="Processing batches"):
             batch = usdt_pairs[i:i + batch_size]
 
             for symbol in batch:
@@ -88,6 +92,7 @@ class BinanceDataCollector:
         if limit > 1500:
             raise ValueError("Limit cannot exceed 1500 candlesticks")
 
+        print(f"Fetching data for {symbol}...")
         klines = self.client.get_historical_klines(
             symbol=symbol,
             interval=interval,
@@ -99,19 +104,27 @@ class BinanceDataCollector:
         if not klines:
             return pd.DataFrame()
 
-        df = pd.DataFrame(data=klines)
-        df = df.rename(columns={
-            0: 'open_time', 1: 'open', 2: 'high', 3: 'low', 4: 'close',
-            5: 'volume', 6: 'close_time', 7: 'quote_volume', 8: 'trades',
-            9: 'taker_buy_volume', 10: 'taker_buy_quote_volume', 11: 'ignored'
-        })
+        # show progress during data processing
+        with tqdm(total=4, desc="Processing data") as pbar:
+            df = pd.DataFrame(data=klines)
+            df = df.rename(columns={
+                0: 'open_time', 1: 'open', 2: 'high', 3: 'low', 4: 'close',
+                5: 'volume', 6: 'close_time', 7: 'quote_volume', 8: 'trades',
+                9: 'taker_buy_volume', 10: 'taker_buy_quote_volume', 11: 'ignored'
+            })
+            pbar.update(1)
 
-        df['open_time'] = pd.to_datetime(df['open_time'].astype(float), unit='ms')
-        df['close_time'] = pd.to_datetime(df['close_time'].astype(float), unit='ms')
+            df['open_time'] = pd.to_datetime(df['open_time'].astype(float), unit='ms')
+            df['close_time'] = pd.to_datetime(df['close_time'].astype(float), unit='ms')
+            pbar.update(1)
 
-        numeric_cols = ['open', 'high', 'low', 'close', 'volume',
-                       'quote_volume', 'taker_buy_volume', 'taker_buy_quote_volume']
-        df[numeric_cols] = df[numeric_cols].astype(float)
-        df['trades'] = df['trades'].astype(int)
+            numeric_cols = ['open', 'high', 'low', 'close', 'volume',
+                           'quote_volume', 'taker_buy_volume', 'taker_buy_quote_volume']
+            df[numeric_cols] = df[numeric_cols].astype(float)
+            pbar.update(1)
 
-        return df.set_index('open_time')
+            df['trades'] = df['trades'].astype(int)
+            df = df.set_index('open_time')
+            pbar.update(1)
+
+            return df

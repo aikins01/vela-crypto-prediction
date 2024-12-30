@@ -1,70 +1,88 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Tuple
-from .model import MarketRegimeHMM
+from src.model import MarketRegimeHMM
+from tqdm import tqdm
 
 class Strategy:
-   def __init__(self, initial_capital: float = 10000):
-       self.initial_capital = initial_capital
-       self.positions = []
-       self.portfolio_value = []
+    def __init__(self, initial_capital: float = 10000):
+        self.initial_capital = initial_capital
+        self.positions = []
+        self.portfolio_value = []
 
-   def backtest(
-       self,
-       model: MarketRegimeHMM,
-       data: pd.DataFrame,
-       features: pd.DataFrame
-   ) -> Dict:
-       # need to align data and features indices
-       data = data.loc[features.index]
+    def backtest(
+        self,
+        model: MarketRegimeHMM,
+        data: pd.DataFrame,
+        features: pd.DataFrame
+    ) -> Dict:
+        # need to align data and features indices
+        data = data.loc[features.index]
+        capital = self.initial_capital
+        position = 0
+        trades = []
 
-       capital = self.initial_capital
-       position = 0
-       trades = []
+        # lets get our trading signals first
+        with tqdm(total=2, desc="Preparing backtest") as pbar:
+            states = model.predict_states(features)
+            pbar.update(1)
+            self.portfolio_value = []  # reset for new run
+            pbar.update(1)
 
-       states = model.predict_states(features)
+        # now simulate each trade
+        for i in tqdm(range(len(features)), desc="Running backtest"):
+            state = states[i]
+            current_price = data['close'].iloc[i]
 
-       for i in range(len(features)):
-           state = states[i]
-           current_price = data['close'].iloc[i]
+            # no position and bullish state
+            if position == 0 and state == 0:
+                position = capital / current_price
+                capital = 0
+                trades.append({
+                    'type': 'buy',
+                    'price': current_price,
+                    'size': position
+                })
 
-           # no position and bullish state
-           if position == 0 and state == 0:
-               position = capital / current_price
-               capital = 0
-               trades.append({
-                   'type': 'buy',
-                   'price': current_price,
-                   'size': position
-               })
+            # have position and bearish state
+            elif position > 0 and state == 1:
+                capital = position * current_price
+                position = 0
+                trades.append({
+                    'type': 'sell',
+                    'price': current_price,
+                    'size': position
+                })
 
-           # have position and bearish state
-           elif position > 0 and state == 1:
-               capital = position * current_price
-               position = 0
-               trades.append({
-                   'type': 'sell',
-                   'price': current_price,
-                   'size': position
-               })
+            # track portfolio value
+            self.portfolio_value.append(capital + position * current_price)
 
-           # track portfolio value
-           self.portfolio_value.append(capital + position * current_price)
+        return self._calculate_metrics(trades)
 
-       return self._calculate_metrics(trades)
+    def _calculate_metrics(self, trades: List[Dict]) -> Dict:
+        # hmm calculate these metrics carefully
+        with tqdm(total=4, desc="Calculating metrics") as pbar:
+            returns = pd.Series(self.portfolio_value).pct_change()
+            pbar.update(1)
 
-   def _calculate_metrics(self, trades: List[Dict]) -> Dict:
-       returns = pd.Series(self.portfolio_value).pct_change()
+            total_return = (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital
+            pbar.update(1)
 
-       return {
-           'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital,
-           'sharpe_ratio': returns.mean() / returns.std() * np.sqrt(252),
-           'max_drawdown': self._calculate_max_drawdown(),
-           'n_trades': len(trades)
-       }
+            sharpe = returns.mean() / returns.std() * np.sqrt(252)
+            pbar.update(1)
 
-   def _calculate_max_drawdown(self) -> float:
-       portfolio = pd.Series(self.portfolio_value)
-       rolling_max = portfolio.expanding().max()
-       drawdown = portfolio - rolling_max
-       return drawdown.min()
+            max_dd = self._calculate_max_drawdown()
+            pbar.update(1)
+
+        return {
+            'total_return': total_return,
+            'sharpe_ratio': sharpe,
+            'max_drawdown': max_dd,
+            'n_trades': len(trades)
+        }
+
+    def _calculate_max_drawdown(self) -> float:
+        portfolio = pd.Series(self.portfolio_value)
+        rolling_max = portfolio.expanding().max()
+        drawdown = portfolio - rolling_max
+        return drawdown.min()

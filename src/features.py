@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import List
 from pandas import Series, DataFrame
+from tqdm import tqdm
 
 class FeatureEngineer:
     def __init__(self):
@@ -12,22 +13,30 @@ class FeatureEngineer:
 
     def calculate_features(self, df: DataFrame) -> DataFrame:
         features = DataFrame(index=df.index)
-
         close_series = Series(df['close'].astype(float))
         high_series = Series(df['high'].astype(float))
         low_series = Series(df['low'].astype(float))
         volume_series = Series(df['volume'].astype(float))
 
-        # lets start with the basic price stuff
-        features['returns'] = np.log(close_series / close_series.shift(1))
-        features['hl_ratio'] = high_series / low_series
+        # lets calculate each feature with progress tracking
+        with tqdm(total=5, desc="Calculating features") as pbar:
+            # lets start with the basic price stuff
+            features['returns'] = np.log(close_series / close_series.shift(1))
+            pbar.update(1)
 
-        # volume is important for regime detection
-        features['volume_ma_ratio'] = volume_series / volume_series.rolling(self.ma_period).mean()
+            features['hl_ratio'] = high_series / low_series
+            pbar.update(1)
 
-        # add some technical indicators
-        features['rsi'] = self._calculate_rsi(close_series)
-        features['volatility'] = self._calculate_volatility(close_series)
+            # volume is important for regime detection
+            features['volume_ma_ratio'] = volume_series / volume_series.rolling(self.ma_period).mean()
+            pbar.update(1)
+
+            # add some technical indicators
+            features['rsi'] = self._calculate_rsi(close_series)
+            pbar.update(1)
+
+            features['volatility'] = self._calculate_volatility(close_series)
+            pbar.update(1)
 
         return features.dropna()
 
