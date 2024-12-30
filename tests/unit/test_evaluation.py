@@ -36,15 +36,17 @@ def sample_data():
    return df
 
 def test_cross_validation(sample_data):
-   evaluator = ModelEvaluator(initial_capital=10000)
-   results = evaluator.cross_validate(sample_data, n_splits=3)
+    evaluator = ModelEvaluator(initial_capital=10000)
+    results = evaluator.cross_validate(sample_data, n_splits=3)
 
-   assert len(results) == 3
-   for result in results:
-       assert 'total_return' in result
-       assert 'sharpe_ratio' in result
-       assert 'max_drawdown' in result
-       assert 'n_trades' in result
+    # we get results for each fold after initial training window
+    assert len(results) == 2  # n_splits - 1 because first window is training only
+
+    for result in results:
+        assert 'total_return' in result
+        assert 'sharpe_ratio' in result
+        assert 'max_drawdown' in result
+        assert 'n_trades' in result
 
 def test_evaluate_split(sample_data):
    evaluator = ModelEvaluator(initial_capital=10000)
