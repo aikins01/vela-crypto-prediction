@@ -1,109 +1,144 @@
 # vela crypto prediction
 
-Short-term crypto prediction for small-cap assets using Hidden Markov Models.
+short-term crypto prediction for small-cap assets using hidden markov models with baum-welch algorithm.
 
-## requirements
+## overview
+built to predict short-term moves in recently listed, low-cap cryptos. focuses on:
+- market regime detection (bull/bear/neutral)
+- small caps under $100M
+- uses 15min data from binance
+- backtests against buy & hold
 
-- python 3.8+
-- binance api access
-- 8GB+ RAM recommended
+## why these choices?
+
+### timeframe choice
+started with suggested 10min interval but found:
+- binance api only offers 1m, 3m, 5m, 15m, 30m
+- went with 15m as best balance of:
+  * enough trades to be useful
+  * less noise than 5m
+  * better sample size for training
+  * manageable api calls
+
+### market regimes
+picked 3 states because:
+- matches how markets actually behave
+- 2 states too simple for crypto
+- 4+ states led to overfitting
+- clear signals for trading
+
+### features used
+built on required ohlc/volume with:
+- returns: momentum
+- volatility: risk gauge
+- rsi: overbought/oversold
+- volume ratios: unusual activity
+
+picked these after testing different combos - gave clearest regime signals
+
+### training approach
+used 3 months training because:
+- matches our <90 day token filter
+- enough data to train hmm properly
+- recent enough to matter
+- worked better than 1-2 months
 
 ## setup
+
+### requirements
+- python 3.8+
+- binance api access
+- 8gb ram recommended
+
+### install
 ```bash
 git clone <repo-url>
-cd vela-crypto-prediction
+cd vela-crypto
 python -m venv venv
-source venv/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate  # or `venv\Scripts\activate` on windows
 pip install -r requirements.txt
 ```
 
-## structure
-- `src/`:
-  - `data_collection.py`: binance api integration, small-cap filtering
-  - `features.py`: technical indicator calculation
-  - `model.py`: hmm with baum-welch implementation
-  - `backtesting.py`: strategy testing
-  - `evaluation.py`: cross-validation
-  - `visualization.py`: performance dashboards
+## how it works
 
-## key features
-- targets recently listed (<90 days) tokens under $100M market cap
-- uses 5-minute candles for short-term predictions
-- identifies market regimes using hmm
-- provides backtesting with standard metrics
-- includes interactive visualizations
-
-## usage
+### getting data
 ```python
 from src.data_collection import BinanceDataCollector
-from src.features import FeatureEngineer
-from src.model import MarketRegimeHMM
-from src.backtesting import Strategy
-from src.visualization import DashboardGenerator
-
-# get data
 collector = BinanceDataCollector()
 tokens = collector.get_small_cap_symbols()
-data = collector.fetch_historical_data(tokens[0]['symbol'], interval='5m')
+data = collector.fetch_historical_data(tokens[0]['symbol'])
+```
 
-# train & backtest
+### training model
+```python
+from src.features import FeatureEngineer
+from src.model import MarketRegimeHMM
+
 engineer = FeatureEngineer()
 features = engineer.calculate_features(data)
+
 model = MarketRegimeHMM()
 model.fit(features)
-
-strategy = Strategy(10000)
-results = strategy.backtest(model, data, features)
-
-# visualize
-dashboard = DashboardGenerator()
-fig = dashboard.generate_dashboard(
-    data,
-    model.predict_states(features),
-    strategy.portfolio_value,
-    results
-)
-dashboard.save_dashboard(fig, 'results.html')
 ```
 
-## model choices
+### backtesting
+```python
+from src.strategy import Strategy
 
-- three states (bull/bear/neutral):
-  * matches typical market phases
-  * balances complexity vs accuracy
-  * reduces overfitting risk
+strategy = Strategy(initial_capital=10000)
+metrics = strategy.backtest(model, data, features)
+```
 
-- 5m intervals:
-  * closest to recommended 10m
-  * good signal/noise ratio
-  * sufficient sample size
+## project layout
+```
+src/
+├── data_collection.py  # binance api stuff
+├── features.py         # technical indicators
+├── model.py           # hmm implementation
+├── backtesting.py     # strategy testing
+├── evaluation.py      # cross validation
+└── visualization.py   # performance dashboards
+```
 
-- features:
-  * returns: momentum
-  * volatility: risk measure
-  * volume ratios: activity level
-  * rsi: overbought/oversold
-  * high-low ratio: price range
+## risk controls
+tuned for small cap volatility:
+- 1.5% per trade: limits downside
+- 3% stops: room for noise
+- 6% take profit: realistic targets
+- min 12 bars hold: avoid churn
+- vol filters: skip crazy periods
 
-- training period: 3 months
-  * matches listing age filter
-  * provides adequate samples
-  * relevant to current conditions
-
-## performance metrics
-- total return
+## performance tracking
+- returns vs buy & hold
 - sharpe ratio
-- maximum drawdown
-- trade count
+- max drawdown
 - win rate
+- trade count
+- stop losses hit
 
-## limitations
-- binance-only
-- needs $1M+ daily volume
-- past performance ≠ future results
-- sensitive to market regime changes
+## known limits
+- binance only data
+- needs decent volume ($1M/day)
+- past results aren't future promises
+- execution risk in thin markets
 
-## testing
+## running tests
 ```bash
-python -m pytest tests/unit/* tests/integration/*
+python -m pytest tests/
 ```
+
+## future ideas
+- smarter position sizing
+- multi-timeframe analysis
+- more technical features
+- portfolio risk mgmt
+
+## results viewing
+makes interactive dashboards showing:
+- price with market regimes
+- strategy vs buy/hold
+- drawdowns over time
+- trade entries/exits
+- key metrics
+
+saved as html in results/

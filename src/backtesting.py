@@ -14,13 +14,9 @@ class Strategy:
         self.stop_loss = 0.03       # 3% stop
         self.min_vol = 0.003        # min vol
         self.max_vol = 0.03         # max vol
-        self.min_state_prob = 0.7   # state prob threshold
+        self.min_state_prob = 0.7   # 70% confidence
         self.min_hold_bars = 12     # min hold time
-        self.take_profit = 0.06     # take profit target
-
-        # scaling params
-        self.scale_in = False       # track if scaled in
-        self.scale_threshold = 0.03  # 3% profit to scale
+        self.take_profit = 0.06     # 6% target
 
     def should_trade(self, vol: float, prob: float) -> bool:
         return (self.min_vol <= vol <= self.max_vol and
@@ -29,14 +25,15 @@ class Strategy:
     def backtest(self, model: MarketRegimeHMM, data: pd.DataFrame, features: pd.DataFrame) -> Dict:
         data = data.loc[features.index]
 
+        # track portfolio
         cash = self.initial_capital
         shares = 0
         values = []
         trades = []
         entry_price = None
         last_trade = -self.min_hold_bars
-        scale_price = None
 
+        # buy & hold comparison
         hold_shares = self.initial_capital / data['close'].iloc[0]
         hold_values = []
 
@@ -50,42 +47,29 @@ class Strategy:
 
             hold_values.append(hold_shares * price)
 
-            # check positions
+            # check stops
             if shares > 0:
                 pnl = (price - entry_price) / entry_price
 
-                # check stop loss
                 if pnl < -self.stop_loss:
                     cash += shares * price * 0.999
                     shares = 0
                     entry_price = None
-                    scale_price = None
                     trades.append({'type': 'stop'})
                     last_trade = i
 
-                # check take profit
                 elif pnl > self.take_profit:
                     cash += shares * price * 0.999
                     shares = 0
                     entry_price = None
-                    scale_price = None
                     trades.append({'type': 'profit'})
                     last_trade = i
-
-                # scale in opportunity
-                elif not self.scale_in and pnl > self.scale_threshold:
-                    scale_size = cash * self.position_size * 0.5
-                    new_shares = (scale_size * 0.999) / price
-                    shares += new_shares
-                    cash -= scale_size
-                    scale_price = price
-                    trades.append({'type': 'scale'})
 
             if (self.should_trade(vol, state_prob) and
                 i - last_trade >= self.min_hold_bars):
 
                 state = states[i]
-                # confirm state with next bar
+                # check next bar state
                 if i < len(data) - 1 and states[i+1] == state:
 
                     if shares == 0 and state == 0:  # bull entry
@@ -93,7 +77,6 @@ class Strategy:
                         shares = (position * 0.999) / price
                         cash -= position
                         entry_price = price
-                        scale_price = None
                         trades.append({'type': 'buy'})
                         last_trade = i
 
@@ -101,7 +84,6 @@ class Strategy:
                         cash += shares * price * 0.999
                         shares = 0
                         entry_price = None
-                        scale_price = None
                         trades.append({'type': 'sell'})
                         last_trade = i
 
@@ -110,12 +92,15 @@ class Strategy:
         self.portfolio_value = values
         return self._calculate_metrics(trades, values, hold_values)
 
-    def _calculate_metrics(self, trades: List[Dict], values: List[float], hold_values: List[float]) -> Dict:
+    def _calculate_metrics(self, trades: List[Dict], values: List[float],
+                         hold_values: List[float]) -> Dict:
         if not values:
             return {}
 
-        final_return = ((values[-1] - self.initial_capital) / self.initial_capital) * 100
-        hold_return = ((hold_values[-1] - self.initial_capital) / self.initial_capital) * 100
+        final_return = ((values[-1] - self.initial_capital) /
+                       self.initial_capital) * 100
+        hold_return = ((hold_values[-1] - self.initial_capital) /
+                      self.initial_capital) * 100
 
         returns = pd.Series(values).pct_change().fillna(0)
         hold_rets = pd.Series(hold_values).pct_change().fillna(0)
@@ -133,8 +118,7 @@ class Strategy:
             'hold_drawdown': self._calculate_drawdown(hold_values),
             'n_trades': len([t for t in trades if t['type'] in ['buy', 'sell']]),
             'stop_losses': len([t for t in trades if t['type'] == 'stop']),
-            'take_profits': len([t for t in trades if t['type'] == 'profit']),
-            'scale_ins': len([t for t in trades if t['type'] == 'scale'])
+            'take_profits': len([t for t in trades if t['type'] == 'profit'])
         }
 
     def _calculate_drawdown(self, values: List[float]) -> float:
