@@ -1,13 +1,8 @@
-from binance.client import Client
+from datetime import datetime
 import pandas as pd
-from datetime import datetime, timedelta
-import os
-from dotenv import load_dotenv
-import numpy as np
+from binance.client import Client
 from typing import Optional, List, Dict
 from tqdm import tqdm
-
-load_dotenv()
 
 class BinanceDataCollector:
     def __init__(self):
@@ -16,9 +11,13 @@ class BinanceDataCollector:
             '1m', '3m', '5m', '15m', '30m',
             '1h', '2h', '4h', '6h', '8h', '12h',
             '1d', '3d', '1w', '1M'
-        ]  # got them from the binance docs
+        ]
 
-    def get_small_cap_symbols(self, max_market_cap: float = 100_000_000, max_days: int = 90) -> List[Dict]:
+    def get_small_cap_symbols(
+        self,
+        max_market_cap: float = 100_000_000,
+        max_days: int = 90
+    ) -> List[Dict]:
         # get all data in one batch where possible
         exchange_info = self.client.get_exchange_info()
         all_tickers = {t['symbol']: t for t in self.client.get_ticker()}
@@ -26,7 +25,6 @@ class BinanceDataCollector:
 
         # filter USDT pairs first
         usdt_pairs = []
-        # hmm lets check each symbol
         for symbol_info in tqdm(exchange_info['symbols'], desc="Checking pairs"):
             symbol = symbol_info['symbol']
             if not symbol.endswith('USDT') or symbol_info['status'] != 'TRADING':
@@ -42,11 +40,11 @@ class BinanceDataCollector:
 
         print(f"High volume USDT pairs found: {len(usdt_pairs)}")
 
-        # check klines in smaller batches to respect rate limits
+        # check klines in smaller batches
         candidates = []
-        batch_size = 10  # process 10 at a time
+        batch_size = 10
 
-        # process batches with progress tracking
+        # process batches with progress
         batches = list(range(0, len(usdt_pairs), batch_size))
         for i in tqdm(batches, desc="Processing batches"):
             batch = usdt_pairs[i:i + batch_size]
@@ -81,30 +79,66 @@ class BinanceDataCollector:
     def fetch_historical_data(
         self,
         symbol: str,
-        interval: str = '15m',
-        start_time: Optional[int] = None,
-        end_time: Optional[int] = None,
-        limit: int = 500
+        interval: str = '15m'
     ) -> pd.DataFrame:
+        """fetch exactly 3 months + 1 week of data for train/test using 15min intervals"""
+
         if interval not in self.valid_intervals:
             raise ValueError(f"Invalid interval. Must be one of {self.valid_intervals}")
 
-        if limit > 1500:
-            raise ValueError("Limit cannot exceed 1500 candlesticks")
+        # calculate bars needed for 15min intervals
+        bars_per_hour = 4  # 15min gives 4 bars per hour
+        bars_per_day = bars_per_hour * 24  # 96 bars per day
 
-        print(f"Fetching data for {symbol}...")
-        klines = self.client.get_historical_klines(
-            symbol=symbol,
-            interval=interval,
-            start_str=start_time,
-            end_str=end_time,
-            limit=limit
-        )
+        train_days = 90  # 3 months
+        test_days = 7    # 1 week
+        total_days = train_days + test_days
 
-        if not klines:
+        total_bars_needed = total_days * bars_per_day
+
+        print(f"Fetching {total_bars_needed} bars for {symbol}...")
+        print(f"This will cover {total_days} days of 15min data")
+
+        chunks = []
+        bars_collected = 0
+
+        while bars_collected < total_bars_needed:
+            chunk_size = min(1500, total_bars_needed - bars_collected)
+            try:
+                klines = self.client.get_historical_klines(
+                    symbol=symbol,
+                    interval=interval,
+                    limit=chunk_size
+                )
+
+                if not klines:
+                    break
+
+                df = self._process_klines(klines)
+                if len(df) == 0:
+                    break
+
+                chunks.append(df)
+                bars_collected += len(df)
+                print(f"Collected {bars_collected}/{total_bars_needed} bars")
+
+                if bars_collected >= total_bars_needed:
+                    break
+
+            except Exception as e:
+                print(f"Error fetching data: {str(e)}")
+                break
+
+        if not chunks:
             return pd.DataFrame()
 
-        # show progress during data processing
+        result = pd.concat(chunks[::-1])  # reverse to get chronological order
+        print(f"Total bars collected: {len(result)}")
+
+        return result
+
+    def _process_klines(self, klines: List) -> pd.DataFrame:
+        """process raw kline data into dataframe"""
         with tqdm(total=4, desc="Processing data") as pbar:
             df = pd.DataFrame(data=klines)
             df = df.rename(columns={

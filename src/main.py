@@ -8,28 +8,25 @@ import pandas as pd
 import os
 
 def train_test_split(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """get 3 month train and 1 week test split"""
-    # 5min bars needed
-    train_bars = int(90 * 24 * 60 / 5)  # 90 days * 24 hours * 12 5min bars per hour
-    test_bars = int(7 * 24 * 60 / 5)    # 7 days * 24 hours * 12 5min bars per hour
+    """split 3 months training, 1 week testing"""
+    # for 15min intervals
+    bars_per_hour = 4
+    bars_per_day = bars_per_hour * 24
 
-    if len(data) < (train_bars + test_bars):
-        raise ValueError(f"Need at least {train_bars + test_bars} bars, got {len(data)}")
+    train_days = 90
+    train_bars = train_days * bars_per_day
 
     train = data.iloc[:train_bars]
-    test = data.iloc[train_bars:train_bars+test_bars]
+    test = data.iloc[train_bars:]
+
     return train, test
 
 def main():
-    # keep results organized
     os.makedirs('results', exist_ok=True)
 
     collector = BinanceDataCollector()
     tokens = collector.get_small_cap_symbols()
     print(f"\nFound {len(tokens)} eligible tokens")
-
-    # need 90 days + 7 days of 5min bars
-    required_bars = int((90 + 7) * 24 * 60 / 5)
 
     results = []
     for token in tqdm(tokens[:5], desc="Analyzing tokens"):
@@ -37,11 +34,10 @@ def main():
         print(f"\nAnalyzing {symbol}")
 
         with tqdm(total=4, desc=f"Processing {symbol}") as pbar:
-            # get enough data for train + test
+            # get data with 15min intervals
             data = collector.fetch_historical_data(
                 symbol=symbol,
-                interval='5m',
-                limit=required_bars
+                interval='15m'
             )
             pbar.update(1)
 
@@ -61,12 +57,10 @@ def main():
             # train model on training data only
             model = MarketRegimeHMM()
             model.fit(train_features)
-
-            # predict states for test period
             test_states = model.predict_states(test_features)
             pbar.update(1)
 
-            # backtest on test period only
+            # backtest on test period
             strategy = Strategy(10000)  # start with 10k USDT
             metrics = strategy.backtest(
                 model,

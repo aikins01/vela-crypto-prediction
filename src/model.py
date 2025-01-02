@@ -8,38 +8,12 @@ class MarketRegimeHMM:
     def __init__(self, n_states: int = 3):
         self.n_states = n_states
 
-        # init hmm with stable defaults
         self.model = hmm.GaussianHMM(
             n_components=n_states,
             covariance_type="diag",
             n_iter=100,
-            random_state=42,
-            init_params=""  # don't init anything randomly
+            random_state=42
         )
-
-        # set sensible starting probabilities
-        self.model.startprob_ = np.array([0.4, 0.2, 0.4])
-
-        # states tend to persist
-        self.model.transmat_ = np.array([
-            [0.8, 0.1, 0.1],  # bull -> bull more likely
-            [0.1, 0.8, 0.1],  # bear -> bear more likely
-            [0.1, 0.1, 0.8],  # neutral -> neutral more likely
-        ])
-
-        # set initial state means and covariances
-        self.model.means_ = np.array([
-            [0.002, 0.01, 65, 1.2],   # bull: up move, higher vol, high rsi, high vol
-            [-0.002, 0.02, 35, 1.5],  # bear: down move, highest vol, low rsi, highest vol
-            [0.0, 0.005, 50, 0.8]     # neutral: flat, low vol, mid rsi, low vol
-        ])
-
-        # set non-zero covariances to avoid numerical issues
-        self.model.covars_ = np.array([
-            [0.001, 0.001, 10, 0.1],  # small variances for stability
-            [0.001, 0.001, 10, 0.1],
-            [0.001, 0.001, 10, 0.1]
-        ])
 
         self.trained = False
 
@@ -47,7 +21,6 @@ class MarketRegimeHMM:
         """train model on features and return likelihood"""
         print("Starting HMM training...")
 
-        # convert to numpy and normalize
         features_array = np.array(features[['returns', 'volatility', 'rsi', 'volume_ma_ratio']])
         X = self._normalize_features(features_array)
 
@@ -83,4 +56,4 @@ class MarketRegimeHMM:
         """standardize features to mean 0, std 1"""
         mean = np.mean(X, axis=0)
         std = np.std(X, axis=0)
-        return (X - mean) / (std + 1e-8)  # avoid div by 0
+        return (X - mean) / (std + 1e-8)
