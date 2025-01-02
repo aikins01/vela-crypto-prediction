@@ -7,7 +7,7 @@ from tqdm import tqdm
 class Strategy:
     def __init__(self, initial_capital: float = 10000):
         self.initial_capital = initial_capital
-        self.portfolio_value = []
+        self.portfolio_value = []  # initialize empty list
 
         # risk params
         self.position_size = 0.015  # 1.5% position
@@ -25,10 +25,12 @@ class Strategy:
     def backtest(self, model: MarketRegimeHMM, data: pd.DataFrame, features: pd.DataFrame) -> Dict:
         data = data.loc[features.index]
 
+        # reset portfolio tracking
+        self.portfolio_value = []  # clear previous values
+
         # track portfolio
         cash = self.initial_capital
         shares = 0
-        values = []
         trades = []
         entry_price = None
         last_trade = -self.min_hold_bars
@@ -69,28 +71,32 @@ class Strategy:
                 i - last_trade >= self.min_hold_bars):
 
                 state = states[i]
-                # check next bar state
-                if i < len(data) - 1 and states[i+1] == state:
 
-                    if shares == 0 and state == 0:  # bull entry
-                        position = cash * self.position_size
-                        shares = (position * 0.999) / price
-                        cash -= position
-                        entry_price = price
-                        trades.append({'type': 'buy'})
-                        last_trade = i
+                # fix boundary check
+                if i < len(states) - 1:  # check if we're not at the last state
+                    next_state = states[i + 1]
 
-                    elif shares > 0 and state == 1:  # bear exit
-                        cash += shares * price * 0.999
-                        shares = 0
-                        entry_price = None
-                        trades.append({'type': 'sell'})
-                        last_trade = i
+                    if next_state == state:  # only trade if next state confirms
+                        if shares == 0 and state == 0:  # bull entry
+                            position = cash * self.position_size
+                            shares = (position * 0.999) / price
+                            cash -= position
+                            entry_price = price
+                            trades.append({'type': 'buy'})
+                            last_trade = i
 
-            values.append(cash + shares * price)
+                        elif shares > 0 and state == 1:  # bear exit
+                            cash += shares * price * 0.999
+                            shares = 0
+                            entry_price = None
+                            trades.append({'type': 'sell'})
+                            last_trade = i
 
-        self.portfolio_value = values
-        return self._calculate_metrics(trades, values, hold_values)
+            # track portfolio value
+            current_value = cash + shares * price
+            self.portfolio_value.append(current_value)
+
+        return self._calculate_metrics(trades, self.portfolio_value, hold_values)
 
     def _calculate_metrics(self, trades: List[Dict], values: List[float],
                          hold_values: List[float]) -> Dict:

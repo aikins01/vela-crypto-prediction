@@ -45,11 +45,6 @@ used 3 months training because:
 
 ## setup
 
-### requirements
-- python 3.8+
-- binance api access
-- 8gb ram recommended
-
 ### install
 ```bash
 git clone <repo-url>
@@ -57,6 +52,11 @@ cd vela-crypto
 python -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on windows
 pip install -r requirements.txt
+```
+
+### running the project
+```bash
+python -m src.main
 ```
 
 ## how it works
